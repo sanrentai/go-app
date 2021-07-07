@@ -15,8 +15,7 @@ func TestA(t *testing.T) {
 	elem.ContentEditable(false)
 	elem.DataSet("foo", "bar")
 	elem.Dir("foo")
-	elem.Download(true)
-	elem.Download(false)
+	elem.Download("foo")
 	elem.Draggable(true)
 	elem.Draggable(false)
 	elem.Hidden(true)
@@ -197,8 +196,7 @@ func TestArea(t *testing.T) {
 	elem.Coords("foo")
 	elem.DataSet("foo", "bar")
 	elem.Dir("foo")
-	elem.Download(true)
-	elem.Download(false)
+	elem.Download("foo")
 	elem.Draggable(true)
 	elem.Draggable(false)
 	elem.Hidden(true)
@@ -3256,8 +3254,8 @@ func TestLabel(t *testing.T) {
 	elem.Text("hello")
 }
 
-func TestLegends(t *testing.T) {
-	elem := Legends()
+func TestLegend(t *testing.T) {
+	elem := Legend()
 	elem.AccessKey("foo")
 	elem.Aria("foo", "bar")
 	elem.Class("foo")
@@ -3625,6 +3623,7 @@ func TestMeta(t *testing.T) {
 	elem.ID("foo")
 	elem.Lang("foo")
 	elem.Name("foo")
+	elem.Property("foo")
 	elem.Spellcheck(true)
 	elem.Spellcheck(false)
 	elem.Style("color", "deepskyblue")

@@ -1,4 +1,5 @@
-// +build !wasm
+//go:generate go run gen/godoc.go
+//go:generate go fmt
 
 package main
 
@@ -9,10 +10,23 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/maxence-charriere/go-app/v7/pkg/app"
-	"github.com/maxence-charriere/go-app/v7/pkg/cli"
-	"github.com/maxence-charriere/go-app/v7/pkg/errors"
-	"github.com/maxence-charriere/go-app/v7/pkg/logs"
+	"github.com/maxence-charriere/go-app/v8/pkg/app"
+	"github.com/maxence-charriere/go-app/v8/pkg/cli"
+	"github.com/maxence-charriere/go-app/v8/pkg/errors"
+	"github.com/maxence-charriere/go-app/v8/pkg/logs"
+)
+
+const (
+	defaultTitle       = "A Go package for building Progressive Web Apps"
+	defaultDescription = "A package for building progressive web apps (PWA) with the Go programming language (Golang) and WebAssembly (Wasm). It uses a declarative syntax that allows creating and dealing with HTML elements only by using Go, and without writing any HTML markup."
+	backgroundColor    = "#2e343a"
+
+	buyMeACoffeeURL     = "https://www.buymeacoffee.com/maxence"
+	openCollectiveURL   = "https://opencollective.com/go-app"
+	githubURL           = "https://github.com/maxence-charriere/go-app"
+	githubSponsorURL    = "https://github.com/sponsors/maxence-charriere"
+	twitterURL          = "https://twitter.com/jonhymaxoo"
+	coinbaseBusinessURL = "https://commerce.coinbase.com/checkout/851320a4-35b5-41f1-897b-74dd5ee207ae"
 )
 
 type localOptions struct {
@@ -24,6 +38,14 @@ type githubOptions struct {
 }
 
 func main() {
+	for path := range mardownPages() {
+		app.Route(path, newMarkdownDoc())
+	}
+	app.Route("/reference", newReference())
+	app.RouteWithRegexp(`^/examples(/(\w)+)*$`, newExample())
+	app.Route("/", newMarkdownDoc())
+	app.RunWhenOnBrowser()
+
 	ctx, cancel := cli.ContextWithSignals(context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
@@ -42,8 +64,11 @@ func main() {
 		Options(&githubOpts)
 
 	h := app.Handler{
+		Name:        "Documentation for go-app",
+		Title:       defaultTitle,
+		Description: defaultDescription,
 		Author:      "Maxence Charriere",
-		Description: "Documentation for the go-app package.",
+		Image:       "https://go-app.dev/web/images/go-app.png",
 		Keywords: []string{
 			"go-app",
 			"go",
@@ -53,6 +78,8 @@ func main() {
 			"progressive web app",
 			"webassembly",
 			"web assembly",
+			"webapp",
+			"web",
 			"gui",
 			"ui",
 			"user interface",
@@ -62,9 +89,29 @@ func main() {
 			"open source",
 			"github",
 		},
-		LoadingLabel: "Loading go-app documentation...",
-		Name:         "Go-app Docs",
-		Title:        "go-app documentation",
+		BackgroundColor: backgroundColor,
+		ThemeColor:      backgroundColor,
+		LoadingLabel:    "Loading go-app documentation...",
+		Scripts: []string{
+			"/web/js/prism.js",
+		},
+		Styles: []string{
+			"https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500&display=swap",
+			"/web/css/prism.css",
+			"/web/css/docs.css",
+		},
+		RawHeaders: []string{
+			`
+			<!-- Global site tag (gtag.js) - Google Analytics -->
+			<script async src="https://www.googletagmanager.com/gtag/js?id=G-SW4FQEM9VM"></script>
+			<script>
+			  window.dataLayer = window.dataLayer || [];
+			  function gtag(){dataLayer.push(arguments);}
+			  gtag('js', new Date());
+			
+			  gtag('config', 'G-SW4FQEM9VM');
+			</script>`,
+		},
 	}
 
 	switch cli.Load() {
@@ -77,7 +124,7 @@ func main() {
 }
 
 func runLocal(ctx context.Context, h *app.Handler, opts localOptions) {
-	app.Log("%s", logs.New("starting go-app documentation service").
+	app.Log(logs.New("starting go-app documentation service").
 		Tag("port", opts.Port).
 		Tag("version", h.Version),
 	)
@@ -98,9 +145,19 @@ func runLocal(ctx context.Context, h *app.Handler, opts localOptions) {
 }
 
 func generateGitHubPages(ctx context.Context, h *app.Handler, opts githubOptions) {
-	h.Resources = app.GitHubPages("go-app")
+	pages := mardownPages()
+	p := make([]string, 0, len(pages))
+	for path := range pages {
+		p = append(p, path)
+	}
+	p = append(p,
+		"/reference",
+		"/examples",
+		"/examples/hello",
+		"/examples/list",
+	)
 
-	if err := app.GenerateStaticWebsite(opts.Output, h); err != nil {
+	if err := app.GenerateStaticWebsite(opts.Output, h, p...); err != nil {
 		panic(err)
 	}
 }
@@ -108,7 +165,7 @@ func generateGitHubPages(ctx context.Context, h *app.Handler, opts githubOptions
 func exit() {
 	err := recover()
 	if err != nil {
-		app.Log("command failed: %s", errors.Newf("%v", err))
+		app.Log("command failed:", errors.Newf("%v", err))
 		os.Exit(-1)
 	}
 }

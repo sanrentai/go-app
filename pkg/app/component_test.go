@@ -231,62 +231,183 @@ func TestCompoUpdate(t *testing.T) {
 }
 
 func TestNavigator(t *testing.T) {
-	testSkipNonWasm(t)
-
+	u, _ := url.Parse("https://murlok.io")
 	h := &hello{}
 
-	err := mount(h)
-	require.NoError(t, err)
-	defer dismount(h)
+	d := NewClientTester(h)
+	defer d.Close()
 
-	u, _ := url.Parse("https://murlok.io")
-	h.onNav(u)
+	d.Nav(u)
+	d.Consume()
 	require.Equal(t, "https://murlok.io", h.onNavURL)
 }
 
 func TestNestedtNavigator(t *testing.T) {
-	testSkipNonWasm(t)
+	u, _ := url.Parse("https://murlok.io")
 
 	h := &hello{}
 	div := Div().Body(h)
+	d := NewClientTester(div)
+	defer d.Close()
 
-	err := mount(div)
-	require.NoError(t, err)
-	defer dismount(div)
-
-	u, _ := url.Parse("https://murlok.io")
-	div.onNav(u)
+	d.Nav(u)
+	d.Consume()
 	require.Equal(t, "https://murlok.io", h.onNavURL)
 }
 
 func TestNestedInComponentNavigator(t *testing.T) {
-	testSkipNonWasm(t)
+	u, _ := url.Parse("https://murlok.io")
 
 	foo := &foo{Bar: "Bar"}
+	d := NewClientTester(foo)
+	defer d.Close()
 
-	err := mount(foo)
-	require.NoError(t, err)
-	defer dismount(foo)
-
-	u, _ := url.Parse("https://murlok.io")
-	foo.onNav(u)
-
+	d.Nav(u)
+	d.Consume()
 	b := foo.children()[0].(*bar)
 	require.Equal(t, "https://murlok.io", b.onNavURL)
+}
+
+func TestUpdater(t *testing.T) {
+	appUpdateAvailable = true
+	defer func() {
+		appUpdateAvailable = false
+	}()
+
+	h := &hello{}
+	d := NewClientTester(h)
+	defer d.Close()
+
+	d.AppUpdate()
+	d.Consume()
+	require.True(t, h.appUpdated)
+}
+
+func TestNestedUpdater(t *testing.T) {
+	appUpdateAvailable = true
+	defer func() {
+		appUpdateAvailable = false
+	}()
+
+	h := &hello{}
+	div := Div().Body(h)
+	d := NewClientTester(div)
+	defer d.Close()
+
+	d.AppUpdate()
+	d.Consume()
+	require.True(t, h.appUpdated)
+}
+
+func TestNestedInComponentUpdater(t *testing.T) {
+	appUpdateAvailable = true
+	defer func() {
+		appUpdateAvailable = false
+	}()
+
+	foo := &foo{Bar: "Bar"}
+	d := NewClientTester(foo)
+	defer d.Close()
+
+	d.AppUpdate()
+	d.Consume()
+	b := foo.children()[0].(*bar)
+	require.True(t, b.appUpdated)
+}
+
+func TestResizer(t *testing.T) {
+	h := &hello{}
+	d := NewClientTester(h)
+	defer d.Close()
+
+	d.AppResize()
+	d.Consume()
+	require.True(t, h.appResized)
+}
+
+func TestNestedResizer(t *testing.T) {
+	h := &hello{}
+	div := Div().Body(h)
+	d := NewClientTester(div)
+	defer d.Close()
+
+	d.AppResize()
+	d.Consume()
+	require.True(t, h.appResized)
+}
+
+func TestNestedInComponentResizer(t *testing.T) {
+	foo := &foo{Bar: "Bar"}
+	d := NewClientTester(foo)
+	defer d.Close()
+
+	d.AppResize()
+	d.Consume()
+	b := foo.children()[0].(*bar)
+	require.True(t, b.appRezized)
+}
+
+func TestPreRenderer(t *testing.T) {
+	h := &hello{}
+	d := NewServerTester(h)
+	defer d.Close()
+
+	d.PreRender()
+	d.Consume()
+	require.True(t, h.preRenderer)
+	require.Equal(t, "world", d.currentPage().Title())
+}
+
+func TestNestedPreRenderer(t *testing.T) {
+	h := &hello{}
+	div := Div().Body(h)
+	d := NewServerTester(div)
+	defer d.Close()
+
+	d.PreRender()
+	d.Consume()
+	require.True(t, h.preRenderer)
+	require.Equal(t, "world", d.currentPage().Title())
+}
+
+func TestNestedInComponentPreRenderer(t *testing.T) {
+	foo := &foo{Bar: "Bar"}
+	d := NewServerTester(foo)
+	defer d.Close()
+
+	d.PreRender()
+	d.Consume()
+	require.Equal(t, "bar", d.currentPage().Title())
 }
 
 type hello struct {
 	Compo
 
-	Greeting string
-	onNavURL string
+	Greeting    string
+	onNavURL    string
+	appUpdated  bool
+	appResized  bool
+	preRenderer bool
 }
 
 func (h *hello) OnMount(Context) {
 }
 
-func (h *hello) OnNav(ctx Context, u *url.URL) {
-	h.onNavURL = u.String()
+func (h *hello) OnNav(ctx Context) {
+	h.onNavURL = ctx.Page.URL().String()
+}
+
+func (h *hello) OnAppUpdate(ctx Context) {
+	h.appUpdated = true
+}
+
+func (h *hello) OnResize(ctx Context) {
+	h.appResized = true
+}
+
+func (h *hello) OnPreRender(ctx Context) {
+	h.preRenderer = true
+	ctx.Page.SetTitle("world")
 }
 
 func (h *hello) OnDismount(Context) {
@@ -316,12 +437,26 @@ func (f *foo) Render() UI {
 
 type bar struct {
 	Compo
-	Value    string
-	onNavURL string
+	Value      string
+	onNavURL   string
+	appUpdated bool
+	appRezized bool
 }
 
-func (b *bar) OnNav(ctx Context, u *url.URL) {
-	b.onNavURL = u.String()
+func (b *bar) OnPreRender(ctx Context) {
+	ctx.Page.SetTitle("bar")
+}
+
+func (b *bar) OnNav(ctx Context) {
+	b.onNavURL = ctx.Page.URL().String()
+}
+
+func (b *bar) OnAppUpdate(ctx Context) {
+	b.appUpdated = true
+}
+
+func (b *bar) OnResize(ctx Context) {
+	b.appRezized = true
 }
 
 func (b *bar) Render() UI {

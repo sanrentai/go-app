@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/maxence-charriere/go-app/v7/pkg/errors"
+	"github.com/maxence-charriere/go-app/v8/pkg/errors"
 )
 
 // Raw returns a ui element from the given raw value. HTML raw value must have a
@@ -19,8 +19,7 @@ func Raw(v string) UI {
 
 	tag := rawRootTagName(v)
 	if tag == "" {
-		panic(errors.New("creating raw element failed").
-			Tag("reason", "opening tag not found"))
+		v = "<div></div>"
 	}
 
 	return &raw{
@@ -30,6 +29,7 @@ func Raw(v string) UI {
 }
 
 type raw struct {
+	disp       Dispatcher
 	jsvalue    Value
 	parentElem UI
 	tag        string
@@ -45,7 +45,7 @@ func (r *raw) JSValue() Value {
 }
 
 func (r *raw) Mounted() bool {
-	return r.jsvalue != nil
+	return r.jsvalue != nil && r.dispatcher() != nil
 }
 
 func (r *raw) name() string {
@@ -61,6 +61,10 @@ func (r *raw) setSelf(UI) {
 
 func (r *raw) context() context.Context {
 	return nil
+}
+
+func (r *raw) dispatcher() Dispatcher {
+	return r.disp
 }
 
 func (r *raw) attributes() map[string]string {
@@ -83,7 +87,7 @@ func (r *raw) children() []UI {
 	return nil
 }
 
-func (r *raw) mount() error {
+func (r *raw) mount(d Dispatcher) error {
 	if r.Mounted() {
 		return errors.New("mounting raw html element failed").
 			Tag("reason", "already mounted").
@@ -91,10 +95,20 @@ func (r *raw) mount() error {
 			Tag("kind", r.Kind())
 	}
 
-	wrapper := Window().Get("document").Call("createElement", "div")
-	wrapper.Set("innerHTML", r.value)
+	r.disp = d
 
-	value := wrapper.Get("firstChild")
+	wrapper, err := Window().createElement("div")
+	if err != nil {
+		return errors.New("creating raw node wrapper failed").Wrap(err)
+	}
+
+	if IsServer {
+		r.jsvalue = wrapper
+		return nil
+	}
+
+	wrapper.setInnerHTML(r.value)
+	value := wrapper.firstChild()
 	if !value.Truthy() {
 		return errors.New("mounting raw html element failed").
 			Tag("reason", "converting raw html to html elements returned nil").
@@ -102,8 +116,7 @@ func (r *raw) mount() error {
 			Tag("kind", r.Kind()).
 			Tag("raw-html", r.value)
 	}
-
-	wrapper.Call("removeChild", value)
+	wrapper.removeChild(value)
 	r.jsvalue = value
 	return nil
 }
@@ -117,7 +130,7 @@ func (r *raw) update(n UI) error {
 		return nil
 	}
 
-	if n.Kind() != r.Kind() || r.name() != r.name() {
+	if n.Kind() != r.Kind() || n.name() != r.name() {
 		return errors.New("updating raw html element failed").
 			Tag("replace", true).
 			Tag("reason", "different element types").
@@ -141,14 +154,22 @@ func (r *raw) update(n UI) error {
 func (r *raw) onNav(*url.URL) {
 }
 
+func (r *raw) onAppUpdate() {
+}
+
+func (r *raw) onResize() {
+}
+
+func (r *raw) preRender(Page) {
+}
+
 func (r *raw) html(w io.Writer) {
-	r.htmlWithIndent(w, 0)
+	w.Write(stob(r.value))
 }
 
 func (r *raw) htmlWithIndent(w io.Writer, indent int) {
 	writeIndent(w, indent)
 	w.Write(stob(r.value))
-	w.Write(ln())
 }
 
 func rawRootTagName(raw string) string {

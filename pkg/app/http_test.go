@@ -12,12 +12,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func init() {
+	Route("/", &preRenderTestCompo{})
+}
+
+type preRenderTestCompo struct {
+	Compo
+}
+
+func (c *preRenderTestCompo) Render() UI {
+	return Div().
+		ID("pre-render-ok").
+		Body(
+			Img().Src("/web/resolve-static-resource-test.jpg"),
+		)
+}
+
 func TestHandlerServePageWithLocalDir(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 
 	h := Handler{
-		Title: "Handler testing",
+		Resources: LocalDir(""),
+		Title:     "Handler testing",
 		Scripts: []string{
 			"web/hello.js",
 			"http://boo.com/bar.js",
@@ -30,6 +47,7 @@ func TestHandlerServePageWithLocalDir(t *testing.T) {
 		RawHeaders: []string{
 			`<meta http-equiv="refresh" content="30">`,
 		},
+		Image: "/web/test.png",
 	}
 	h.Icon.AppleTouch = "ios.png"
 
@@ -42,9 +60,12 @@ func TestHandlerServePageWithLocalDir(t *testing.T) {
 	require.Contains(t, body, `href="http://boo.com/bar.css"`)
 	require.Contains(t, body, `src="/web/hello.js"`)
 	require.Contains(t, body, `src="http://boo.com/bar.js"`)
-	require.Contains(t, body, `href="/manifest.json"`)
+	require.Contains(t, body, `href="/manifest.webmanifest"`)
 	require.Contains(t, body, `href="/app.css"`)
 	require.Contains(t, body, `<meta http-equiv="refresh" content="30">`)
+	require.Contains(t, body, `<div id="pre-render-ok">`)
+	require.Contains(t, body, `content="/web/test.png"`)
+	require.Contains(t, body, `<img src="/web/resolve-static-resource-test.jpg">`)
 
 	t.Log(body)
 }
@@ -68,6 +89,7 @@ func TestHandlerServePageWithRemoteBucket(t *testing.T) {
 		RawHeaders: []string{
 			`<meta http-equiv="refresh" content="30">`,
 		},
+		Image: "/web/test.png",
 	}
 	h.Icon.AppleTouch = "ios.png"
 
@@ -80,9 +102,12 @@ func TestHandlerServePageWithRemoteBucket(t *testing.T) {
 	require.Contains(t, body, `href="http://boo.com/bar.css"`)
 	require.Contains(t, body, `src="https://storage.googleapis.com/go-app/web/hello.js"`)
 	require.Contains(t, body, `src="http://boo.com/bar.js"`)
-	require.Contains(t, body, `href="/manifest.json"`)
+	require.Contains(t, body, `href="/manifest.webmanifest"`)
 	require.Contains(t, body, `href="/app.css"`)
 	require.Contains(t, body, `<meta http-equiv="refresh" content="30">`)
+	require.Contains(t, body, `<div id="pre-render-ok">`)
+	require.Contains(t, body, `content="https://storage.googleapis.com/go-app/web/test.png"`)
+	require.Contains(t, body, `<img src="https://storage.googleapis.com/go-app/web/resolve-static-resource-test.jpg">`)
 
 	t.Log(body)
 }
@@ -118,10 +143,11 @@ func TestHandlerServePageWithGitHubPages(t *testing.T) {
 	require.Contains(t, body, `href="http://boo.com/bar.css"`)
 	require.Contains(t, body, `src="/go-app/web/hello.js"`)
 	require.Contains(t, body, `src="http://boo.com/bar.js"`)
-	require.Contains(t, body, `href="/go-app/manifest.json"`)
+	require.Contains(t, body, `href="/go-app/manifest.webmanifest"`)
 	require.Contains(t, body, `href="/go-app/app.css"`)
 	require.Contains(t, body, `<meta http-equiv="refresh" content="30">`)
-
+	require.Contains(t, body, `<div id="pre-render-ok">`)
+	require.Contains(t, body, `<img src="/go-app/web/resolve-static-resource-test.jpg">`)
 	t.Log(body)
 }
 
@@ -135,6 +161,7 @@ func TestHandlerServeWasmExecJS(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "application/javascript", w.Header().Get("Content-Type"))
 	require.Equal(t, wasmExecJS, w.Body.String())
+	t.Log(w.Body.String())
 }
 
 func TestHandlerServeAppJSWithLocalDir(t *testing.T) {
@@ -307,7 +334,7 @@ func TestHandlerServeAppWorkerJSWithGitHubPages(t *testing.T) {
 }
 
 func TestHandlerServeManifestJSONWithLocalDir(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	r := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
 	w := httptest.NewRecorder()
 
 	h := Handler{
@@ -333,7 +360,7 @@ func TestHandlerServeManifestJSONWithLocalDir(t *testing.T) {
 }
 
 func TestHandlerServeManifestJSONWithRemoteBucket(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	r := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
 	w := httptest.NewRecorder()
 
 	h := Handler{
@@ -360,7 +387,7 @@ func TestHandlerServeManifestJSONWithRemoteBucket(t *testing.T) {
 }
 
 func TestHandlerServeManifestJSONWithGitHubPages(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	r := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
 	w := httptest.NewRecorder()
 
 	h := Handler{
@@ -452,70 +479,110 @@ func TestHandlerServeFile(t *testing.T) {
 	require.Equal(t, "hello!", w.Body.String())
 }
 
-func TestHandlerServeRobotsTxt(t *testing.T) {
+func TestHandlerProxyResources(t *testing.T) {
 	close := testCreateDir(t, "web")
 	defer close()
-	testCreateFile(t, filepath.Join("web", "robots.txt"), "robot")
 
-	s := httptest.NewServer(&Handler{})
+	s := httptest.NewServer(&Handler{
+		ProxyResources: []ProxyResource{
+			{
+				Path:         "/hello.txt",
+				ResourcePath: "/web/hello.txt",
+			},
+			{
+				Path:         "/plop.txt",
+				ResourcePath: "/web/plop.txt",
+			},
+			{
+				Path:         "/app.js",
+				ResourcePath: "/web/app.js",
+			},
+		},
+	})
 	defer s.Close()
 
-	test := func(t *testing.T) {
-		res, err := http.Get(s.URL + "/robots.txt")
-		require.NoError(t, err)
-		defer res.Body.Close()
-		require.Equal(t, http.StatusOK, res.StatusCode)
-
-		content, err := ioutil.ReadAll(res.Body)
-		require.NoError(t, err)
-		require.Equal(t, "robot", btos(content))
+	utests := []struct {
+		scenario string
+		file     string
+		body     string
+		code     int
+		notProxy bool
+	}{
+		{
+			scenario: "robots.txt is fetched",
+			file:     "robots.txt",
+			code:     http.StatusOK,
+			body:     "robots!",
+		},
+		{
+			scenario: "sitemap.xml is fetched",
+			file:     "sitemap.xml",
+			code:     http.StatusOK,
+			body:     "sitemap!",
+		},
+		{
+			scenario: "ads.txt is fetched",
+			file:     "ads.txt",
+			code:     http.StatusOK,
+			body:     "ads!",
+		},
+		{
+			scenario: "proxy resource is fetched",
+			file:     "hello.txt",
+			code:     http.StatusOK,
+			body:     "hello!",
+		},
+		{
+			scenario: "proxy resource is not found",
+			file:     "plop.txt",
+			code:     http.StatusNotFound,
+		},
+		{
+			scenario: "no proxy resource is not fetched",
+			file:     "bye.txt",
+			code:     http.StatusNotFound,
+			body:     "bye!",
+			notProxy: true,
+		},
+		{
+			scenario: "app.js is not a proxy resource",
+			file:     "app.js",
+			code:     http.StatusOK,
+			body:     "wasm!",
+			notProxy: true,
+		},
 	}
 
-	t.Run("robots.txt", test)
-	t.Run("cached robots.txt", test)
-}
+	for _, u := range utests {
+		t.Run(u.scenario, func(t *testing.T) {
+			for i := 0; i < 2; i++ {
+				if u.body != "" {
+					testCreateFile(t, filepath.Join("web", u.file), u.body)
+				}
 
-func TestHandlerServeRobotsTxtNotFound(t *testing.T) {
-	s := httptest.NewServer(&Handler{})
-	defer s.Close()
+				url := s.URL + "/" + u.file
 
-	res, err := http.Get(s.URL + "/robots.txt")
-	require.NoError(t, err)
-	defer res.Body.Close()
-	require.Equal(t, http.StatusNotFound, res.StatusCode)
-}
+				res, err := http.Get(url)
+				require.NoError(t, err)
+				defer res.Body.Close()
 
-func TestHandlerServeAdsTxt(t *testing.T) {
-	close := testCreateDir(t, "web")
-	defer close()
-	testCreateFile(t, filepath.Join("web", "ads.txt"), "ads")
+				require.Equal(t, u.code, res.StatusCode)
+				if u.code != http.StatusOK {
+					return
+				}
 
-	s := httptest.NewServer(&Handler{})
-	defer s.Close()
+				body, err := ioutil.ReadAll(res.Body)
+				require.NoError(t, err)
 
-	test := func(t *testing.T) {
-		res, err := http.Get(s.URL + "/ads.txt")
-		require.NoError(t, err)
-		defer res.Body.Close()
-		require.Equal(t, http.StatusOK, res.StatusCode)
+				if u.notProxy {
+					require.NotEqual(t, u.body, btos(body))
+					return
+				}
 
-		content, err := ioutil.ReadAll(res.Body)
-		require.NoError(t, err)
-		require.Equal(t, "ads", btos(content))
+				require.Equal(t, u.body, btos(body))
+			}
+		})
 	}
-
-	t.Run("ads.txt", test)
-	t.Run("cached ads.txt", test)
-}
-
-func TestHandlerServeAdsTxtNotFound(t *testing.T) {
-	s := httptest.NewServer(&Handler{})
-	defer s.Close()
-
-	res, err := http.Get(s.URL + "/ads.txt")
-	require.NoError(t, err)
-	defer res.Body.Close()
-	require.Equal(t, http.StatusNotFound, res.StatusCode)
 }
 
 func BenchmarkHandlerColdRun(b *testing.B) {
@@ -581,6 +648,52 @@ func TestIsRemoteLocation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
 			res := isRemoteLocation(test.path)
+			require.Equal(t, test.expected, res)
+		})
+	}
+}
+
+func TestIsStaticResourcePath(t *testing.T) {
+	tests := []struct {
+		scenario string
+		path     string
+		expected bool
+	}{
+		{
+			scenario: "static resource path",
+			path:     "/web/hello",
+			expected: true,
+		},
+		{
+			scenario: "static resource path with prefix slash",
+			path:     "web/hello",
+			expected: true,
+		},
+		{
+			scenario: "static resource directory",
+			path:     "/web",
+			expected: false,
+		},
+		{
+			scenario: "static resource directory without prefix slash",
+			path:     "web",
+			expected: false,
+		},
+		{
+			scenario: "non static resource",
+			path:     "/app.js",
+			expected: false,
+		},
+		{
+			scenario: "remote resource",
+			path:     "https://localhost/hello",
+			expected: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.scenario, func(t *testing.T) {
+			res := isStaticResourcePath(test.path)
 			require.Equal(t, test.expected, res)
 		})
 	}

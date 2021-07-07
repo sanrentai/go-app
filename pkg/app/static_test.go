@@ -16,11 +16,16 @@ func TestGenerateStaticWebsite(t *testing.T) {
 	dir := "static-test"
 	defer os.RemoveAll(dir)
 
-	err := GenerateStaticWebsite(dir, &Handler{
-		Name:      "Static Go-app",
-		Title:     "Static test",
-		Resources: GitHubPages("go-app"),
-	})
+	err := GenerateStaticWebsite(dir,
+		&Handler{
+			Name:      "Static Go-app",
+			Title:     "Static test",
+			Resources: GitHubPages("go-app"),
+		},
+		"/hello",
+		"world",
+		"/nested/foo",
+	)
 	require.NoError(t, err)
 
 	files := []string{
@@ -30,8 +35,11 @@ func TestGenerateStaticWebsite(t *testing.T) {
 		filepath.Join(dir, "wasm_exec.js"),
 		filepath.Join(dir, "app.js"),
 		filepath.Join(dir, "app-worker.js"),
-		filepath.Join(dir, "manifest.json"),
+		filepath.Join(dir, "manifest.webmanifest"),
 		filepath.Join(dir, "app.css"),
+		filepath.Join(dir, "hello.html"),
+		filepath.Join(dir, "world.html"),
+		filepath.Join(dir, "nested", "foo.html"),
 	}
 
 	for _, f := range files {
