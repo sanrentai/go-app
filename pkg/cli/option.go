@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maxence-charriere/go-app/v7/pkg/errors"
+	"github.com/maxence-charriere/go-app/v10/pkg/errors"
 )
 
 type optionParser struct {
@@ -28,14 +28,14 @@ func (p *optionParser) parse(v interface{}) ([]option, error) {
 
 	if val.Kind() != reflect.Ptr {
 		return nil, errors.New("receiver is not a pointer").
-			Tag("type", val.Type()).
-			Tag("kind", val.Kind())
+			WithTag("type", val.Type()).
+			WithTag("kind", val.Kind())
 	}
 
 	if val = val.Elem(); val.Kind() != reflect.Struct {
 		return nil, errors.New("receiver does not point to a struct").
-			Tag("type", val.Type()).
-			Tag("kind", val.Kind())
+			WithTag("type", val.Type()).
+			WithTag("kind", val.Kind())
 	}
 
 	p.parseStruct("", val)

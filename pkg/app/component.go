@@ -1,327 +1,240 @@
 package app
 
 import (
-	"context"
-	"net/url"
 	"reflect"
 	"strings"
 
-	"github.com/maxence-charriere/go-app/v7/pkg/errors"
+	"github.com/maxence-charriere/go-app/v10/pkg/errors"
 )
 
-// Composer is the interface that describes a customized, independent and
-// reusable UI element.
+// Composer defines a contract for creating custom, independent, and reusable
+// UI elements. Components that satisfy the Composer interface serve as building
+// blocks for richer user interfaces in a structured manner.
 //
-// Satisfying this interface is done by embedding app.Compo into a struct and
-// implementing the Render function.
+// Implementing the Composer interface typically involves embedding app.Compo
+// into a struct and defining the Render method, which dictates the component's
+// visual representation.
 //
 // Example:
-//  type Hello struct {
-//      app.Compo
-//  }
 //
-//  func (c *Hello) Render() app.UI {
-//      return app.Text("hello")
-//  }
+//	type Hello struct {
+//	    app.Compo
+//	}
+//
+//	func (c *Hello) Render() app.UI {
+//	    return app.Text("hello")
+//	}
 type Composer interface {
 	UI
 
-	// Render returns the node tree that define how the component is desplayed.
+	// Render constructs and returns the visual representation of the component
+	// as a node tree.
 	Render() UI
 
-	// Update update the component appearance. It should be called when a field
-	// used to render the component has been modified.
-	Update()
+	setRef(Composer) Composer
+	depth() uint
+	setDepth(uint) Composer
+	parent() UI
+	root() UI
+	setRoot(UI) Composer
 }
 
-// Mounter is the interface that describes a component that can perform
-// additional actions when mounted.
-type Mounter interface {
-	Composer
+// Initializer describes a component that requires initialization
+// instructions to be executed before it is mounted.
+type Initializer interface {
+	// OnInit is invoked before the component is mounted.
+	OnInit()
+}
 
-	// The function that is called when the component is mounted. It is always
-	// called on the UI goroutine.
+// PreRenderer is the interface that describes a component that performs
+// additional instructions during server-side rendering.
+//
+// Implementing OnPreRender within a component can enhance SEO by allowing
+// server-side preparations for rendering.
+type PreRenderer interface {
+	// OnPreRender is called during the server-side rendering process of the
+	// component.
+	OnPreRender(Context)
+}
+
+// Mounter represents components that require initialization or setup actions
+// when they are integrated into the DOM. By implementing the Mounter interface,
+// components gain the ability to define specific behaviors that occur right
+// after they are visually rendered or integrated into the DOM hierarchy.
+type Mounter interface {
+	// OnMount is triggered right after the component is embedded into the DOM.
+	// Use this hook to perform any post-render configurations or
+	// initializations.
+	// This method operates within the UI goroutine.
 	OnMount(Context)
 }
 
-// Dismounter is the interface that describes a component that can perform
-// additional actions when dismounted.
+// Dismounter outlines the behavior for components that require specific
+// tasks or cleanup operations when they're detached from the DOM. Components
+// adhering to this interface can designate procedures to run immediately
+// after their removal from the DOM structure.
 type Dismounter interface {
-	Composer
-
-	// The function that is called when the component is dismounted. It is
-	// always called on the UI goroutine.
+	// OnDismount is invoked immediately after the component is detached from
+	// the DOM. This method offers a stage for executing cleanup or other
+	// concluding operations.
+	// This function is executed within the UI goroutine.
 	OnDismount()
 }
 
-// Navigator is the interface that describes a component that can perform
-// additional actions when navigated on.
+// Navigator characterizes components that need to perform specific
+// actions or initializations when they become the target of navigation.
+// By adopting the Navigator interface, components can specify behaviors
+// to be executed when they are navigated to within the application.
 type Navigator interface {
-	Composer
-
-	// The function that is called when the component is navigated on. It is
-	// always called on the UI goroutine.
-	OnNav(Context, *url.URL)
+	// OnNav is invoked when the component becomes the navigation target.
+	// Use this method to handle actions or setups related to navigation events.
+	// This function is always executed within the UI goroutine.
+	OnNav(Context)
 }
 
-// Compo represents the base struct to use in order to build a component.
+// Updater encapsulates components that require specific behaviors or reactions
+// when one of their exported fields is updated by the closest parent component.
+// Implementing the Updater interface allows components to define responsive
+// actions that should be executed whenever they are modified by a parent.
+type Updater interface {
+	// OnUpdate is triggered whenever an exported field of the component gets
+	// modified by its immediate parent component. This method is an opportunity
+	// to handle related reactions or recalculations.
+	// This function always runs within the UI goroutine context.
+	OnUpdate(Context)
+}
+
+// AppUpdater defines components that are alerted when a newer version of the
+// application is downloaded in the background. Implementing this interface
+// allows components to proactively adapt to app updates, ensuring coherence
+// with the most up-to-date version of the application.
+type AppUpdater interface {
+	// OnAppUpdate is called once a new version of the application has been
+	// fetched in the background. It offers a window for components to execute
+	// actions, such as prompting a page reload, to transition to the updated
+	// app version.
+	// This function always operates within the UI goroutine context.
+	OnAppUpdate(Context)
+}
+
+// AppInstaller outlines components that receive notifications about changes in
+// the application's installation status. Through this interface, components can
+// actively respond to installation state transitions, facilitating dynamic
+// user experiences tailored to the app's current status.
+type AppInstaller interface {
+	// OnAppInstallChange is invoked when the application shifts between the
+	// states of being installable and actually installed.
+	//
+	// To determine the current installation state, one can use
+	// Context.IsAppInstallable() or Context.IsAppInstalled().
+	//
+	// By leveraging this method, components can maintain alignment with the
+	// app's installation status, potentially influencing UI elements like an
+	// "Install" button visibility or behavior.
+	// This method is always executed in the UI goroutine context.
+	OnAppInstallChange(Context)
+}
+
+// Resizer identifies components that respond to size alterations within the
+// application. These components can dynamically adjust to diverse size
+// scenarios, ensuring they maintain both a visually appealing and functional
+// display.
+type Resizer interface {
+	// OnResize is called whenever the application experiences a change in size.
+	// Components can use this method to make appropriate adjustments,
+	// recalculations, or layout shifts in response to the modified dimensions.
+	// Note: This method operates exclusively within the UI goroutine context.
+	OnResize(Context)
+}
+
+// Compo serves as the foundational struct for constructing a component. It
+// provides basic methods and fields needed for component management.
 type Compo struct {
-	ctx        context.Context
-	ctxCancel  func()
-	parentElem UI
-	root       UI
-	this       Composer
+	treeDepth     uint
+	ref           Composer
+	parentElement UI
+	rootElement   UI
 }
 
-// Kind returns the ui element kind.
-func (c *Compo) Kind() Kind {
-	return Component
-}
-
-// JSValue returns the javascript value of the component root.
+// JSValue retrieves the JavaScript value associated with the component's root.
+// If the root element isn't defined, it returns a nil JavaScript value.
 func (c *Compo) JSValue() Value {
-	return c.root.JSValue()
+	if c.rootElement == nil {
+		return ValueOf(nil)
+	}
+	return c.rootElement.JSValue()
 }
 
-// Mounted reports whether the component is mounted.
+// Mounted checks if the component is currently mounted within the UI.
 func (c *Compo) Mounted() bool {
-	return c.ctx != nil && c.ctx.Err() == nil &&
-		c.root != nil && c.root.Mounted() &&
-		c.self() != nil
+	return c.ref != nil
 }
 
-// Render describes the component content. This is a default implementation to
-// satisfy the app.Composer interface. It should be redefined when app.Compo is
-// embedded.
+// Render produces a visual representation of the component's content. This
+// default implementation ensures the app.Composer interface is satisfied
+// when app.Compo is embedded. However, developers are encouraged to redefine
+// this method to customize the component's appearance.
 func (c *Compo) Render() UI {
+	componentName := reflect.TypeOf(c.ref).Name()
+
 	return Div().
-		DataSet("compo-type", c.name()).
+		DataSet("compo-type", componentName).
 		Style("border", "1px solid currentColor").
 		Style("padding", "12px 0").
 		Body(
-			H1().Text("Component "+strings.TrimPrefix(c.name(), "*")),
+			H1().Text("Component "+strings.TrimPrefix(componentName, "*")),
 			P().Body(
 				Text("Change appearance by implementing: "),
 				Code().
 					Style("color", "deepskyblue").
 					Style("margin", "0 6px").
-					Text("func (c "+c.name()+") Render() app.UI"),
+					Text("func (c "+componentName+") Render() app.UI"),
 			),
 		)
 }
 
-// Update triggers a component appearance update. It should be called when a
-// field used to render the component has been modified. Updates are always
-// performed on the UI goroutine.
-func (c *Compo) Update() {
-	dispatch(func() {
-		if !c.Mounted() {
+// ValueTo captures the value of the DOM element (if it exists) that triggered
+// an event, and assigns it to the provided receiver. The receiver must be a
+// pointer pointing to either a string, integer, unsigned integer, or a float.
+// This method panics if the provided value isn't a pointer.
+func (c *Compo) ValueTo(v any) EventHandler {
+	return func(ctx Context, e Event) {
+		value := ctx.JSSrc().Get("value")
+		if err := stringTo(value.String(), v); err != nil {
+			Log(errors.New("storing dom element value failed").Wrap(err))
 			return
 		}
-
-		if err := c.updateRoot(); err != nil {
-			panic(err)
-		}
-	})
-}
-
-func (c *Compo) name() string {
-	name := reflect.TypeOf(c.self()).String()
-	name = strings.ReplaceAll(name, "main.", "")
-	return name
-}
-
-func (c *Compo) self() UI {
-	return c.this
-}
-
-func (c *Compo) setSelf(n UI) {
-	if n != nil {
-		c.this = n.(Composer)
-		return
 	}
-
-	c.this = nil
 }
 
-func (c *Compo) context() context.Context {
-	return c.ctx
+func (c *Compo) setRef(v Composer) Composer {
+	c.ref = v
+	return v
 }
 
-func (c *Compo) attributes() map[string]string {
-	return nil
+func (c *Compo) depth() uint {
+	return c.treeDepth
 }
 
-func (c *Compo) eventHandlers() map[string]eventHandler {
-	return nil
+func (c *Compo) setDepth(v uint) Composer {
+	c.treeDepth = v
+	return c.ref
 }
 
 func (c *Compo) parent() UI {
-	return c.parentElem
+	return c.parentElement
 }
 
-func (c *Compo) setParent(p UI) {
-	c.parentElem = p
+func (c *Compo) setParent(p UI) UI {
+	c.parentElement = p
+	return c.ref
 }
 
-func (c *Compo) children() []UI {
-	return []UI{c.root}
+func (c *Compo) root() UI {
+	return c.rootElement
 }
 
-func (c *Compo) mount() error {
-	if c.Mounted() {
-		return errors.New("mounting component failed").
-			Tag("reason", "already mounted").
-			Tag("name", c.name()).
-			Tag("kind", c.Kind())
-	}
-
-	c.ctx, c.ctxCancel = context.WithCancel(context.Background())
-
-	root := c.render()
-	if err := mount(root); err != nil {
-		return errors.New("mounting component failed").
-			Tag("name", c.name()).
-			Tag("kind", c.Kind()).
-			Wrap(err)
-	}
-	root.setParent(c.this)
-	c.root = root
-
-	if mounter, ok := c.this.(Mounter); ok {
-		mounter.OnMount(Context{
-			Context: c.ctx,
-			Src:     c.this,
-			JSSrc:   c.this.JSValue(),
-		})
-	}
-
-	return nil
-}
-
-func (c *Compo) dismount() {
-	dismount(c.root)
-	c.ctxCancel()
-
-	if dismounter, ok := c.this.(Dismounter); ok {
-		dismounter.OnDismount()
-	}
-}
-
-func (c *Compo) update(n UI) error {
-	if c.self() == n || !c.Mounted() {
-		return nil
-	}
-
-	if n.Kind() != c.Kind() || n.name() != c.name() {
-		return errors.New("updating ui element failed").
-			Tag("replace", true).
-			Tag("reason", "different element types").
-			Tag("current-kind", c.Kind()).
-			Tag("current-name", c.name()).
-			Tag("updated-kind", n.Kind()).
-			Tag("updated-name", n.name())
-	}
-
-	aval := reflect.Indirect(reflect.ValueOf(c.self()))
-	bval := reflect.Indirect(reflect.ValueOf(n))
-	compotype := reflect.ValueOf(c).Elem().Type()
-
-	for i := 0; i < aval.NumField(); i++ {
-		a := aval.Field(i)
-		b := bval.Field(i)
-
-		if a.Type() == compotype {
-			continue
-		}
-
-		if !a.CanSet() {
-			continue
-		}
-
-		if !reflect.DeepEqual(a.Interface(), b.Interface()) {
-			a.Set(b)
-		}
-	}
-
-	return c.updateRoot()
-}
-
-func (c *Compo) updateRoot() error {
-	a := c.root
-	b := c.render()
-
-	err := update(a, b)
-	if isErrReplace(err) {
-		err = c.replaceRoot(b)
-	}
-
-	if err != nil {
-		return errors.New("updating component failed").
-			Tag("kind", c.Kind()).
-			Tag("name", c.name()).
-			Wrap(err)
-	}
-
-	return nil
-}
-
-func (c *Compo) replaceRoot(n UI) error {
-	old := c.root
-	new := n
-
-	if err := mount(new); err != nil {
-		return errors.New("replacing component root failed").
-			Tag("kind", c.Kind()).
-			Tag("name", c.name()).
-			Tag("root-kind", old.Kind()).
-			Tag("root-name", old.name()).
-			Tag("new-root-kind", new.Kind()).
-			Tag("new-root-name", new.name()).
-			Wrap(err)
-	}
-
-	var parent UI
-	for {
-		parent = c.parent()
-		if parent == nil || parent.Kind() == HTML {
-			break
-		}
-	}
-
-	if parent == nil {
-		return errors.New("replacing component root failed").
-			Tag("kind", c.Kind()).
-			Tag("name", c.name()).
-			Tag("reason", "coponent does not have html element parents")
-	}
-
-	c.root = new
-	new.setParent(c.self())
-
-	oldjs := old.JSValue()
-	newjs := n.JSValue()
-	parent.JSValue().Call("replaceChild", newjs, oldjs)
-
-	dismount(old)
-	return nil
-}
-
-func (c *Compo) onNav(u *url.URL) {
-	c.root.onNav(u)
-
-	if nav, ok := c.self().(Navigator); ok {
-		ctx := Context{
-			Context: c.context(),
-			Src:     c.self(),
-			JSSrc:   c.JSValue(),
-		}
-
-		nav.OnNav(ctx, u)
-	}
-}
-
-func (c *Compo) render() UI {
-	elems := FilterUIElems(c.this.Render())
-	return elems[0]
+func (c *Compo) setRoot(v UI) Composer {
+	c.rootElement = v
+	return c.ref
 }

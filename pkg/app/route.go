@@ -1,49 +1,67 @@
 package app
 
-import "regexp"
-
-var (
-	routes router
+import (
+	"regexp"
+	"sync"
 )
 
-// Route binds the requested path to the given UI node.
-func Route(path string, node UI) {
-	routes.route(path, node)
-}
-
-// RouteWithRegexp binds the regular expression pattern to the given UI node.
-// Patterns use the Go standard regexp format.
-func RouteWithRegexp(pattern string, node UI) {
-	routes.routeWithRegexp(pattern, node)
-}
-
 type router struct {
-	routes           map[string]UI
+	mu               sync.RWMutex
+	routes           map[string]func() Composer
 	routesWithRegexp []regexpRoute
 }
 
-func (r *router) route(path string, node UI) {
-	if r.routes == nil {
-		r.routes = make(map[string]UI)
+func makeRouter() router {
+	return router{
+		routes: make(map[string]func() Composer),
 	}
-	r.routes[path] = node
 }
 
-func (r *router) routeWithRegexp(pattern string, node UI) {
+func (r *router) route(path string, newComponent func() Composer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.routes[path] = newComponent
+}
+
+func (r *router) routeWithRegexp(pattern string, newComponent func() Composer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.routesWithRegexp = append(r.routesWithRegexp, regexpRoute{
-		regexp: regexp.MustCompile(pattern),
-		node:   node,
+		regexp:       regexp.MustCompile(pattern),
+		newComponent: newComponent,
 	})
 }
 
-func (r *router) ui(path string) (UI, bool) {
-	if node, routed := r.routes[path]; routed {
-		return node, true
+func (r *router) routed(path string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if _, routed := r.routes[path]; routed {
+		return true
 	}
 
-	for _, r := range r.routesWithRegexp {
-		if r.regexp.MatchString(path) {
-			return r.node, true
+	for _, rwr := range r.routesWithRegexp {
+		if rwr.regexp.MatchString(path) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *router) createComponent(path string) (Composer, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if newComponent, routed := r.routes[path]; routed {
+		return newComponent(), true
+	}
+
+	for _, rwr := range r.routesWithRegexp {
+		if rwr.regexp.MatchString(path) {
+			return rwr.newComponent(), true
 		}
 	}
 
@@ -51,6 +69,6 @@ func (r *router) ui(path string) (UI, bool) {
 }
 
 type regexpRoute struct {
-	regexp *regexp.Regexp
-	node   UI
+	regexp       *regexp.Regexp
+	newComponent func() Composer
 }

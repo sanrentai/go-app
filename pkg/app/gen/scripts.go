@@ -1,10 +1,10 @@
+//go:build ignore
 // +build ignore
 
 package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +17,7 @@ func main() {
 	}
 	defer f.Close()
 
-	fmt.Fprintln(f, "// +build !wasm")
+	fmt.Fprintln(f, "//go:build !wasm")
 	fmt.Fprintln(f)
 	fmt.Fprintln(f, "package app")
 	fmt.Fprintln(f)
@@ -25,27 +25,49 @@ func main() {
 	fmt.Fprintln(f)
 
 	gen := []struct {
-		Var      string
-		Filename string
+		Var           string
+		Filename      string
+		Documentation string
 	}{
-		{Var: "wasmExecJS", Filename: filepath.Join(
-			runtime.GOROOT(),
-			"misc",
-			"wasm",
-			"wasm_exec.js",
-		)},
-		{Var: "appJS", Filename: "gen/app.js"},
-		{Var: "appWorkerJS", Filename: "gen/app-worker.js"},
-		{Var: "manifestJSON", Filename: "gen/manifest.json"},
-		{Var: "appCSS", Filename: "gen/app.css"},
+		{
+			Var:           "DefaultAppWorkerJS",
+			Filename:      "gen/app-worker.js",
+			Documentation: "The default template used to generate app-worker.js.",
+		},
+		{
+			Var: "wasmExecJSGoCurrent",
+			Filename: filepath.Join(
+				runtime.GOROOT(),
+				"misc",
+				"wasm",
+				"wasm_exec.js",
+			),
+		},
+		{
+			Var:      "appJS",
+			Filename: "gen/app.js",
+		},
+		{
+			Var:      "manifestJSON",
+			Filename: "gen/manifest.webmanifest",
+		},
+		{
+			Var:      "appCSS",
+			Filename: "gen/app.css",
+		},
 	}
 
 	fmt.Fprintln(f, "const(")
 
 	for _, g := range gen {
-		b, err := ioutil.ReadFile(g.Filename)
+		b, err := os.ReadFile(g.Filename)
 		if err != nil {
 			panic(err)
+		}
+
+		if g.Documentation != "" {
+			fmt.Fprintln(f, "//", g.Documentation)
+
 		}
 
 		fmt.Fprintf(f, "%s = %q", g.Var, b)

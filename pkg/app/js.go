@@ -1,6 +1,8 @@
 package app
 
-import "net/url"
+import (
+	"net/url"
+)
 
 // Type represents the JavaScript type of a Value.
 type Type int
@@ -16,6 +18,29 @@ const (
 	TypeObject
 	TypeFunction
 )
+
+func (t Type) String() string {
+	switch t {
+	case TypeUndefined:
+		return "undefined"
+	case TypeNull:
+		return "null"
+	case TypeBoolean:
+		return "boolean"
+	case TypeNumber:
+		return "number"
+	case TypeString:
+		return "string"
+	case TypeSymbol:
+		return "symbol"
+	case TypeObject:
+		return "object"
+	case TypeFunction:
+		return "function"
+	default:
+		panic("bad type")
+	}
+}
 
 // Wrapper is implemented by types that are backed by a JavaScript value.
 type Wrapper interface {
@@ -33,7 +58,15 @@ type Value interface {
 	// Call does a JavaScript call to the method m of value v with the given
 	// arguments. It panics if v has no method m. The arguments get mapped to
 	// JavaScript values according to the ValueOf function.
-	Call(m string, args ...interface{}) Value
+	Call(m string, args ...any) Value
+
+	// Delete deletes the JavaScript property p of value v. It panics if v is
+	// not a JavaScript object.
+	Delete(p string)
+
+	// Equal reports whether v and w are equal according to JavaScript's ===
+	// operator.
+	Equal(w Value) bool
 
 	// Float returns the value v as a float64. It panics if v is not a
 	// JavaScript number.
@@ -58,7 +91,7 @@ type Value interface {
 	// Invoke does a JavaScript call of the value v with the given arguments. It
 	// panics if v is not a JavaScript function. The arguments get mapped to
 	// JavaScript values according to the ValueOf function.
-	Invoke(args ...interface{}) Value
+	Invoke(args ...any) Value
 
 	// IsNaN reports whether v is the JavaScript value "NaN".
 	IsNaN() bool
@@ -80,15 +113,15 @@ type Value interface {
 	// given arguments. It panics if v is not a JavaScript function. The
 	// arguments get mapped to JavaScript values according to the ValueOf
 	// function.
-	New(args ...interface{}) Value
+	New(args ...any) Value
 
 	// Set sets the JavaScript property p of value v to ValueOf(x). It panics if
 	// v is not a JavaScript object.
-	Set(p string, x interface{})
+	Set(p string, x any)
 
 	// SetIndex sets the JavaScript index i of value v to ValueOf(x). It panics
 	// if v is not a JavaScript object.
-	SetIndex(i int, x interface{})
+	SetIndex(i int, x any)
 
 	// String returns the value v as a string. String is a special case because
 	// of Go's String method convention. Unlike the other getters, it does not
@@ -107,6 +140,24 @@ type Value interface {
 	// JavaScript's typeof operator, except that it returns TypeNull instead of
 	// TypeObject for null.
 	Type() Type
+
+	// Then calls the given function when the promise resolves. The current
+	// value must be a promise.
+	Then(f func(Value))
+
+	getAttr(k string) string
+	setAttr(k, v string)
+	delAttr(k string)
+	firstChild() Value
+	appendChild(c Wrapper)
+	replaceChild(new, old Wrapper)
+	removeChild(c Wrapper)
+	firstElementChild() Value
+	addEventListener(event string, fn Func, options map[string]any)
+	removeEventListener(event string, fn Func)
+	setNodeValue(v string)
+	setInnerHTML(v string)
+	setInnerText(v string)
 }
 
 // Null returns the JavaScript value "null".
@@ -121,19 +172,19 @@ func Undefined() Value {
 
 // ValueOf returns x as a JavaScript value:
 //
-//  | Go                     | JavaScript             |
-//  | ---------------------- | ---------------------- |
-//  | js.Value               | [its value]            |
-//  | js.Func                | function               |
-//  | nil                    | null                   |
-//  | bool                   | boolean                |
-//  | integers and floats    | number                 |
-//  | string                 | string                 |
-//  | []interface{}          | new array              |
-//  | map[string]interface{} | new object             |
+//	| Go                     | JavaScript             |
+//	| ---------------------- | ---------------------- |
+//	| js.Value               | [its value]            |
+//	| js.Func                | function               |
+//	| nil                    | null                   |
+//	| bool                   | boolean                |
+//	| integers and floats    | number                 |
+//	| string                 | string                 |
+//	| []any                  | new array              |
+//	| map[string]any         | new object             |
 //
 // Panics if x is not one of the expected types.
-func ValueOf(x interface{}) Value {
+func ValueOf(x any) Value {
 	return valueOf(x)
 }
 
@@ -163,7 +214,7 @@ type Func interface {
 //
 // Func.Release must be called to free up resources when the function will not
 // be used any more.
-func FuncOf(fn func(this Value, args []Value) interface{}) Func {
+func FuncOf(fn func(this Value, args []Value) any) Func {
 	return funcOf(fn)
 }
 
@@ -188,21 +239,11 @@ type BrowserWindow interface {
 	// Scrolls to the HTML element with the given id.
 	ScrollToID(id string)
 
-	// AddEventListener subscribes a given handler to the specified event. It
-	// returns a function that must be called to unsubscribe the handler and
-	// release allocated resources.
-	AddEventListener(event string, h EventHandler) func()
-}
-
-// Event is the interface that describes a javascript event.
-type Event struct {
-	Value
-}
-
-// PreventDefault cancels the event if it is cancelable. The default action that
-// belongs to the event will not occur.
-func (e Event) PreventDefault() {
-	e.Call("preventDefault")
+	setBody(body UI)
+	createElement(tag, xmlns string) (Value, error)
+	createTextNode(v string) Value
+	addHistory(u *url.URL)
+	replaceHistory(u *url.URL)
 }
 
 // CopyBytesToGo copies bytes from the Uint8Array src to dst. It returns the

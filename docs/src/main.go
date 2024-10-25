@@ -1,22 +1,42 @@
-// +build !wasm
-
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
+	"path"
+	"sync"
 	"syscall"
 
-	"github.com/maxence-charriere/go-app/v7/pkg/app"
-	"github.com/maxence-charriere/go-app/v7/pkg/cli"
-	"github.com/maxence-charriere/go-app/v7/pkg/errors"
-	"github.com/maxence-charriere/go-app/v7/pkg/logs"
+	"github.com/SherClockHolmes/webpush-go"
+	"github.com/maxence-charriere/go-app/v10/pkg/analytics"
+	"github.com/maxence-charriere/go-app/v10/pkg/app"
+	"github.com/maxence-charriere/go-app/v10/pkg/cli"
+	"github.com/maxence-charriere/go-app/v10/pkg/errors"
+	"github.com/maxence-charriere/go-app/v10/pkg/logs"
+	"github.com/maxence-charriere/go-app/v10/pkg/ui"
+)
+
+const (
+	defaultTitle       = "A Go package for building Progressive Web Apps"
+	defaultDescription = "A package for building progressive web apps (PWA) with the Go programming language (Golang) and WebAssembly (Wasm). It uses a declarative syntax that allows creating and dealing with HTML elements only by using Go, and without writing any HTML markup."
+	backgroundColor    = "#2e343a"
+
+	buyMeACoffeeURL     = "https://www.buymeacoffee.com/maxence"
+	openCollectiveURL   = "https://opencollective.com/go-app"
+	githubURL           = "https://github.com/maxence-charriere/go-app"
+	githubSponsorURL    = "https://github.com/sponsors/maxence-charriere"
+	twitterURL          = "https://twitter.com/jonhymaxoo"
+	coinbaseBusinessURL = "https://commerce.coinbase.com/checkout/851320a4-35b5-41f1-897b-74dd5ee207ae"
 )
 
 type localOptions struct {
-	Port int `cli:"p" env:"GOAPP_DOCS_PORT" help:"The port used by the server that serves the PWA."`
+	Port            int    `cli:"p"                 env:"GOAPP_DOCS_PORT"   help:"The port used by the server that serves the PWA."`
+	VAPIDPrivateKey string `cli:"vapid-private-key" env:"VAPID_PRIVATE_KEY" help:"The VAP id private key to sign push notifications."`
+	VAPIDPublicKey  string `cli:"vapid-public-key"  env:"VAPID_PUBLIC_KEY"  help:"The VAP id public key to verify push notifications."`
 }
 
 type githubOptions struct {
@@ -24,6 +44,41 @@ type githubOptions struct {
 }
 
 func main() {
+	ui.BaseHPadding = 42
+	ui.BlockPadding = 18
+	analytics.Add(analytics.NewGoogleAnalytics())
+
+	app.Route("/", app.NewZeroComponentFactory(newHomePage()))
+	app.Route("/getting-started", app.NewZeroComponentFactory(newGettingStartedPage()))
+	app.Route("/architecture", app.NewZeroComponentFactory(newArchitecturePage()))
+	app.Route("/reference", app.NewZeroComponentFactory(newReferencePage()))
+
+	app.Route("/components", app.NewZeroComponentFactory(newComponentsPage()))
+	app.Route("/declarative-syntax", app.NewZeroComponentFactory(newDeclarativeSyntaxPage()))
+	app.Route("/routing", app.NewZeroComponentFactory(newRoutingPage()))
+	app.Route("/static-resources", app.NewZeroComponentFactory(newStaticResourcePage()))
+	app.Route("/js", app.NewZeroComponentFactory(newJSPage()))
+	app.Route("/concurrency", app.NewZeroComponentFactory(newConcurrencyPage()))
+	app.Route("/seo", app.NewZeroComponentFactory(newSEOPage()))
+	app.Route("/lifecycle", app.NewZeroComponentFactory(newLifecyclePage()))
+	app.Route("/install", app.NewZeroComponentFactory(newInstallPage()))
+	app.Route("/testing", app.NewZeroComponentFactory(newTestingPage()))
+	app.Route("/actions", app.NewZeroComponentFactory(newActionPage()))
+	app.Route("/states", app.NewZeroComponentFactory(newStatesPage()))
+	app.Route("/notifications", app.NewZeroComponentFactory(newNotificationsPage()))
+
+	app.Route("/migrate", app.NewZeroComponentFactory(newMigratePage()))
+	app.Route("/github-deploy", app.NewZeroComponentFactory(newGithubDeployPage()))
+
+	app.Route("/privacy-policy", app.NewZeroComponentFactory(newPrivacyPolicyPage()))
+
+	app.Handle(installApp, handleAppInstall)
+	app.Handle(updateApp, handleAppUpdate)
+	app.Handle(getMarkdown, handleGetMarkdown)
+	app.Handle(getReference, handleGetReference)
+
+	app.RunWhenOnBrowser()
+
 	ctx, cancel := cli.ContextWithSignals(context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
@@ -42,8 +97,11 @@ func main() {
 		Options(&githubOpts)
 
 	h := app.Handler{
+		Name:        "Documentation for go-app",
+		Title:       defaultTitle,
+		Description: defaultDescription,
 		Author:      "Maxence Charriere",
-		Description: "Documentation for the go-app package.",
+		Image:       "https://go-app.dev/web/images/go-app.png",
 		Keywords: []string{
 			"go-app",
 			"go",
@@ -53,6 +111,8 @@ func main() {
 			"progressive web app",
 			"webassembly",
 			"web assembly",
+			"webapp",
+			"web",
 			"gui",
 			"ui",
 			"user interface",
@@ -62,9 +122,27 @@ func main() {
 			"open source",
 			"github",
 		},
-		LoadingLabel: "Loading go-app documentation...",
-		Name:         "Go-app Docs",
-		Title:        "go-app documentation",
+		BackgroundColor: backgroundColor,
+		ThemeColor:      backgroundColor,
+		LoadingLabel:    "go-app documentation {progress}%",
+		Styles: []string{
+			// "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500&display=swap",
+			"/web/css/prism.css",
+			"/web/css/docs.css",
+		},
+		Scripts: []string{
+			"/web/js/prism.js defer",
+			"https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1013306768105236 async crossorigin=anonymous",
+		},
+		RawHeaders: []string{
+			analytics.GoogleAnalyticsHeader("G-SW4FQEM9VM"),
+		},
+		CacheableResources: []string{
+			"/web/documents/what-is-go-app.md",
+			"/web/documents/updates.md",
+			"/web/documents/home.md",
+			"/web/documents/home-next.md",
+		},
 	}
 
 	switch cli.Load() {
@@ -77,14 +155,23 @@ func main() {
 }
 
 func runLocal(ctx context.Context, h *app.Handler, opts localOptions) {
-	app.Log("%s", logs.New("starting go-app documentation service").
-		Tag("port", opts.Port).
-		Tag("version", h.Version),
+	app.Log(logs.New("starting go-app documentation service").
+		WithTag("port", opts.Port).
+		WithTag("version", h.Version),
 	)
 
+	h.Env = map[string]string{
+		"VAPID_PUBLIC_KEY": opts.VAPIDPublicKey,
+	}
+
+	http.Handle("/", h)
+	http.Handle("/test/notifications/", &notificationHandler{
+		VAPIDPrivateKey: opts.VAPIDPrivateKey,
+		VAPIDPublicKey:  opts.VAPIDPublicKey,
+	})
+
 	s := http.Server{
-		Addr:    fmt.Sprintf(":%v", opts.Port),
-		Handler: h,
+		Addr: fmt.Sprintf(":%v", opts.Port),
 	}
 
 	go func() {
@@ -98,8 +185,6 @@ func runLocal(ctx context.Context, h *app.Handler, opts localOptions) {
 }
 
 func generateGitHubPages(ctx context.Context, h *app.Handler, opts githubOptions) {
-	h.Resources = app.GitHubPages("go-app")
-
 	if err := app.GenerateStaticWebsite(opts.Output, h); err != nil {
 		panic(err)
 	}
@@ -108,7 +193,84 @@ func generateGitHubPages(ctx context.Context, h *app.Handler, opts githubOptions
 func exit() {
 	err := recover()
 	if err != nil {
-		app.Log("command failed: %s", errors.Newf("%v", err))
+		app.Log("command failed:", errors.Newf("%v", err))
 		os.Exit(-1)
+	}
+}
+
+type notificationHandler struct {
+	VAPIDPrivateKey string
+	VAPIDPublicKey  string
+
+	mutex         sync.Mutex
+	subscriptions map[string]webpush.Subscription
+}
+
+func (h *notificationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch path := path.Base(r.URL.Path); path {
+	case "register":
+		h.handleRegistrations(w, r)
+
+	case "test":
+		h.handleTests(w, r)
+	}
+}
+
+// handleRegistrations receives and stores the previously created subscription.
+func (h *notificationHandler) handleRegistrations(w http.ResponseWriter, r *http.Request) {
+	var sub webpush.Subscription
+	if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	if h.subscriptions == nil {
+		h.subscriptions = make(map[string]webpush.Subscription)
+	}
+	h.subscriptions[sub.Endpoint] = sub
+}
+
+// handleTests creates and sends a push notification for all the registered
+// subscriptions.
+func (h *notificationHandler) handleTests(w http.ResponseWriter, r *http.Request) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for _, sub := range h.subscriptions {
+		go func(sub webpush.Subscription) {
+			n := rand.Intn(42)
+			fmt.Println("sending push", n)
+
+			notif := app.Notification{
+				Title: fmt.Sprintf("Push test from server %v", n),
+				Body:  fmt.Sprintf("YEAH BABY PUSH ME %v", n),
+				Icon:  "/web/images/go-app.png",
+				Path:  "/notifications#sending-push-notification",
+				// Actions: []app.NotificationAction{
+				// 	{Action: "js", Title: "JS", Path: "/js"},
+				// 	{Action: "seo", Title: "SEO", Path: "/seo"},
+				// },
+			}
+
+			b, err := json.Marshal(notif)
+			if err != nil {
+				app.Log(err)
+				return
+			}
+
+			res, err := webpush.SendNotification(b, &sub, &webpush.Options{
+				VAPIDPrivateKey: h.VAPIDPrivateKey,
+				VAPIDPublicKey:  h.VAPIDPublicKey,
+				TTL:             30,
+			})
+			if err != nil {
+				app.Log(errors.New("sending push notification failed").Wrap(err))
+				return
+			}
+			defer res.Body.Close()
+		}(sub)
 	}
 }

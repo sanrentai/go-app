@@ -1,7 +1,9 @@
-bootstrap:
+install:
 	@echo "\033[94m• Setting up go test for wasm to run in the browser\033[00m"
-	go get -u github.com/agnivade/wasmbrowsertest
-	mv ${GOPATH}/bin/wasmbrowsertest ${GOPATH}/bin/go_js_wasm_exec
+	go install github.com/agnivade/wasmbrowsertest@latest
+	mv `go env GOPATH`/bin/wasmbrowsertest `go env GOPATH`/bin/go_js_wasm_exec
+	go install golang.org/x/tools/cmd/godoc@latest
+	go install golang.org/x/perf/cmd/benchstat@latest
 
 .PHONY: test
 test:
@@ -12,7 +14,7 @@ test:
 	@echo "\033[94m\n• Running go wasm tests\033[00m"
 	GOARCH=wasm GOOS=js go test ./pkg/app
 
-release: test
+release:
 ifdef VERSION
 	@echo "\033[94m\n• Releasing ${VERSION}\033[00m"
 	@git tag ${VERSION}
@@ -24,10 +26,14 @@ else
 	@echo "~> make VERSION=\033[90mv6.0.0\033[00m release"
 endif
 	
+gen:
+	@echo "\033[94m• Generating HTML Syntax\033[00m"
+	@go generate ./pkg/app
 
 build:
 	@echo "\033[94m• Building go-app documentation PWA\033[00m"
-	@GOARCH=wasm GOOS=js go build -o docs/web/app.wasm ./docs/src
+	@godoc -url /pkg/github.com/maxence-charriere/go-app/v10/pkg/app > ./docs/web/documents/reference.html
+	@GOARCH=wasm GOOS=js go build -v -o docs/web/app.wasm ./docs/src
 	@echo "\033[94m• Building go-app documentation\033[00m"
 	@go build -o docs/documentation ./docs/src
 
@@ -42,3 +48,4 @@ github: build
 clean:
 	@go clean -v ./...
 	-@rm docs/documentation
+	@go mod tidy

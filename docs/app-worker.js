@@ -1,45 +1,136 @@
-const cacheName = "app-" + "c8ea588279b06a0f4857c93c9fa64284820337cd";
+// -----------------------------------------------------------------------------
+// PWA
+// -----------------------------------------------------------------------------
+const cacheName = "app-" + "174e4030da44f4b3255aedb965beea90a03cb3dc";
+const resourcesToCache = ["https://raw.githubusercontent.com/maxence-charriere/go-app/master/docs/web/icon.png","https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1013306768105236","/web/js/prism.js","/web/documents/what-is-go-app.md","/web/documents/updates.md","/web/documents/home.md","/web/documents/home-next.md","/web/css/prism.css","/web/css/docs.css","/web/app.wasm","/wasm_exec.js","/manifest.webmanifest","/app.js","/app.css","/"];
 
-self.addEventListener("install", event => {
-  console.log("installing app worker c8ea588279b06a0f4857c93c9fa64284820337cd");
-  self.skipWaiting();
-
-  event.waitUntil(
-    caches.open(cacheName).then(cache => {
-      return cache.addAll([
-        "/go-app",
-        "/go-app/app.css",
-        "/go-app/app.js",
-        "/go-app/manifest.json",
-        "/go-app/wasm_exec.js",
-        "/go-app/web/app.wasm",
-        "https://storage.googleapis.com/murlok-github/icon-192.png",
-        "https://storage.googleapis.com/murlok-github/icon-512.png",
-        
-      ]);
-    })
-  );
+self.addEventListener("install", async (event) => {
+  try {
+    console.log("installing app worker 174e4030da44f4b3255aedb965beea90a03cb3dc");
+    await installWorker();
+    await self.skipWaiting();
+  } catch (error) {
+    console.error("error during installation:", error);
+  }
 });
 
-self.addEventListener("activate", event => {
+async function installWorker() {
+  const cache = await caches.open(cacheName);
+  await cache.addAll(resourcesToCache);
+}
+
+self.addEventListener("activate", async (event) => {
+  try {
+    await deletePreviousCaches(); // Await cache cleanup
+    await self.clients.claim(); // Ensure the service worker takes control of the clients
+    console.log("app worker 174e4030da44f4b3255aedb965beea90a03cb3dc is activated");
+  } catch (error) {
+    console.error("error during activation:", error);
+  }
+});
+
+async function deletePreviousCaches() {
+  keys = await caches.keys();
+  keys.forEach(async (key) => {
+    if (key != cacheName) {
+      try {
+        console.log("deleting", key, "cache");
+        await caches.delete(key);
+      } catch (err) {
+        console.error("deleting", key, "cache failed:", err);
+      }
+    }
+  });
+}
+
+self.addEventListener("fetch", (event) => {
+  event.respondWith(fetchWithCache(event.request));
+});
+
+async function fetchWithCache(request) {
+  const cachedResponse = await caches.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+  return await fetch(request);
+}
+
+// -----------------------------------------------------------------------------
+// Push Notifications
+// -----------------------------------------------------------------------------
+self.addEventListener("push", (event) => {
+  if (!event.data || !event.data.text()) {
+    return;
+  }
+
+  const notification = JSON.parse(event.data.text());
+  if (!notification) {
+    return;
+  }
+
+  const title = notification.title;
+  delete notification.title;
+
+  if (!notification.data) {
+    notification.data = {};
+  }
+  let actions = [];
+  for (let i in notification.actions) {
+    const action = notification.actions[i];
+
+    actions.push({
+      action: action.action,
+      path: action.path,
+    });
+
+    delete action.path;
+  }
+  notification.data.goapp = {
+    path: notification.path,
+    actions: actions,
+  };
+  delete notification.path;
+
+  event.waitUntil(self.registration.showNotification(title, notification));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const notification = event.notification;
+  let path = notification.data.goapp.path;
+
+  for (let i in notification.data.goapp.actions) {
+    const action = notification.data.goapp.actions[i];
+    if (action.action === event.action) {
+      path = action.path;
+      break;
+    }
+  }
+
   event.waitUntil(
-    caches.keys().then(keyList => {
-      return Promise.all(
-        keyList.map(key => {
-          if (key !== cacheName) {
-            return caches.delete(key);
+    clients
+      .matchAll({
+        type: "window",
+      })
+      .then((clientList) => {
+        for (var i = 0; i < clientList.length; i++) {
+          let client = clientList[i];
+          if ("focus" in client) {
+            client.focus();
+            client.postMessage({
+              goapp: {
+                type: "notification",
+                path: path,
+              },
+            });
+            return;
           }
-        })
-      );
-    })
-  );
-  console.log("app worker c8ea588279b06a0f4857c93c9fa64284820337cd is activated");
-});
+        }
 
-self.addEventListener("fetch", event => {
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      return response || fetch(event.request);
-    })
+        if (clients.openWindow) {
+          return clients.openWindow(path);
+        }
+      })
   );
 });

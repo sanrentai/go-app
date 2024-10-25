@@ -7,20 +7,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLocalStorage(t *testing.T) {
-	testBrowserStorage(t, LocalStorage)
+func TestMemoryStorage(t *testing.T) {
+	testBrowserStorage(t, newMemoryStorage())
 }
 
-func TestLocalStorageFull(t *testing.T) {
-	testBrowserStorageFull(t, LocalStorage)
+func TestJSLocalStorage(t *testing.T) {
+	testSkipNonWasm(t)
+	testBrowserStorage(t, newJSStorage("localStorage"))
 }
 
-func TestSessionStorage(t *testing.T) {
-	testBrowserStorage(t, SessionStorage)
-}
-
-func TestSessionStorageFull(t *testing.T) {
-	testBrowserStorageFull(t, SessionStorage)
+func TestJSSessionStorage(t *testing.T) {
+	testSkipNonWasm(t)
+	testBrowserStorage(t, newJSStorage("sessionStorage"))
 }
 
 type obj struct {
@@ -56,6 +54,19 @@ func testBrowserStorage(t *testing.T, s BrowserStorage) {
 		{
 			scenario: "get with non json value receiver returns an error",
 			function: testBrowserStorageGetError,
+		},
+		{
+			scenario: "len returns the storage length",
+			function: testBrowserStorageLen,
+		},
+		{
+			scenario: "foreach iterates over each storage keys",
+			function: testBrowserStorageForEach,
+		},
+
+		{
+			scenario: "contains reports an existing key",
+			function: testBrowserStorageContains,
 		},
 	}
 
@@ -151,4 +162,49 @@ func testBrowserStorageFull(t *testing.T, s BrowserStorage) {
 
 	require.Error(t, err)
 	t.Log(err)
+}
+
+func testBrowserStorageLen(t *testing.T, s BrowserStorage) {
+	s.Clear()
+
+	s.Set("hello", 42)
+	s.Set("world", 42)
+	s.Set("bye", 42)
+
+	require.Equal(t, 3, s.Len())
+}
+
+func testBrowserStorageForEach(t *testing.T, s BrowserStorage) {
+	s.Clear()
+
+	keys := []string{
+		"starwars",
+		"startrek",
+		"alien",
+		"marvel",
+		"dune",
+		"lords of the rings",
+	}
+	for _, k := range keys {
+		s.Set(k, 3000)
+	}
+	require.Equal(t, s.Len(), len(keys))
+
+	keyMap := make(map[string]struct{})
+	s.ForEach(func(key string) {
+		keyMap[key] = struct{}{}
+	})
+	require.Len(t, keyMap, len(keys))
+
+	for _, k := range keys {
+		require.Contains(t, keyMap, k)
+	}
+}
+
+func testBrowserStorageContains(t *testing.T, s BrowserStorage) {
+	s.Clear()
+
+	require.False(t, s.Contains("lightsaber"))
+	s.Set("lightsaber", true)
+	require.True(t, s.Contains("lightsaber"))
 }
